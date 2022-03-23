@@ -3,6 +3,8 @@ title: "Nutrient_Analysis"
 author: "Jessica Bullington"
 date: "3/23/2022"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -12,10 +14,169 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Set up
 
 ```{r load libraries}
-
+library(ggplot2)
+library(dplyr)
+library(viridis)
 ```
 
 ```{r load data}
+stinson_probe <- read.csv("Data_Stinson_2022.csv")
+stinson_probe$tide <- factor(stinson_probe$tide, levels = c("high", "low"))
+stinson_probe$date <- factor(stinson_probe$date, levels = c("2/23/22", "2/24/22", "2/25/22", "2/26/22", "2/27/22", "2/28/22", "3/1/22", "3/2/22", "3/3/22"))
+stinson_probe <- droplevels(stinson_probe)
+stinson_probe = subset(stinson_probe, tide %in% c("high", "low"))
+
+sand_surface <- as.data.frame(read.table("sand_surface.txt", header = TRUE, sep = "\t"))
+```
+
+## Spatial and temporal patterns
+```{r katie's bubble plot}
+pretty_plot <- theme_classic() + theme(
+  text = element_text(family = "Arial", color = "black"),
+  plot.margin = margin(0.5,0.5,0.5,0.5, "cm"),
+  axis.line.x.bottom = element_line(color = "black", size = 0.5),
+  axis.line.y.left = element_line(color = "black", size = 0.5),
+  panel.border = element_rect(colour="black", fill = NA, size = 0.5),
+  strip.background = element_blank(),
+  strip.text = element_text(size = 12),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  plot.title = element_text(size = 15),
+  axis.title = element_text(size = 12), 
+  axis.text.y = element_text(size = 12, color = "#000000"),
+  axis.text.x = element_text(size = 12, color = "#000000"))
+```
+
+
+```{r nitrite bubble}
+ggplot(data = stinson_probe, aes(x=distance_well1, y=elevation, size=Nitrite_uM, fill=salinity)) +
+  geom_line(data = sand_surface, aes(x=distance_well1, y=elevation, size=0.001, fill=NULL), color = "gold", show.legend = FALSE) +
+  geom_point(shape=21, color="black") +
+  scale_size(range = c(min(stinson_probe$Nitrite_uM, na.rm=T)+2, max(stinson_probe$Nitrite_uM, na.rm=T)/10), name = "Nitrite (uM)") +
+  scale_fill_viridis(alpha = 0.3, name = "Salinity") +
+  theme(legend.position="left") +
+  ylab("Elevation (ft above MSL)") +
+  xlab("Distance from Well 1 (ft)") +
+  #coord_fixed() + 
+  pretty_plot +
+  facet_grid(date~tide)
+
+# save as 6 x 8 in
+
+```
+
+```{r nitrate bubble}
+ggplot(data = stinson_probe, aes(x=distance_well1, y=elevation, size=Nitrate_uM, fill=salinity)) +
+  geom_line(data = sand_surface, aes(x=distance_well1, y=elevation, size=0.001, fill=NULL), color = "gold", show.legend = FALSE) +
+  geom_point(shape=21, color="black") +
+  scale_size(range = c(min(stinson_probe$Nitrate_uM, na.rm=T)+2, max(stinson_probe$Nitrate_uM, na.rm=T)/80), name = "Nitrate (uM)") +
+  scale_fill_viridis(alpha = 0.3, name = "Salinity") +
+  theme(legend.position="left") +
+  ylab("Elevation (ft above MSL)") +
+  xlab("Distance from Well 1 (ft)") +
+  #coord_fixed() + 
+  pretty_plot +
+  facet_grid(date~tide)
+
+```
+
+```{r phosphate bubble}
+ggplot(data = stinson_probe, aes(x=distance_well1, y=elevation, size=Phosphate_uM, fill=salinity)) +
+  geom_line(data = sand_surface, aes(x=distance_well1, y=elevation, size=0.001, fill=NULL), color = "gold", show.legend = FALSE) +
+  geom_point(shape=21, color="black") +
+  scale_size(range = c(min(stinson_probe$Phosphate_uM, na.rm=T)/2, max(stinson_probe$Phosphate_uM, na.rm=T)/10), name = "Phosphate (uM)") +
+  scale_fill_viridis(alpha = 0.3, name = "Salinity") +
+  theme(legend.position="left") +
+  ylab("Elevation (ft above MSL)") +
+  xlab("Distance from Well 1 (ft)") +
+  #coord_fixed() + 
+  pretty_plot +
+  facet_grid(date~tide)
+```
+
+## Coorelations
+
+```{r distribution check}
+hist(stinson_probe$Nitrite_uM)
+hist(stinson_probe$Nitrate_uM)
+hist(stinson_probe$Phosphate_uM)
+
+hist(stinson_probe$salinity)
+hist(stinson_probe$temperature)
+hist(stinson_probe$DO)
+hist(stinson_probe$pH)
+
+
+hist(sqrt(stinson_probe$Nitrite_uM)) # model zeros separately?
+hist(sqrt(stinson_probe$Nitrate_uM))
+hist(log10(stinson_probe$Phosphate_uM+1))
+
+
+```
+
+
+```{r pairs}
+pairs(~Nitrite_uM + Nitrate_uM + Phosphate_uM + salinity + DO + pH + distance_well1 + elevation, data = stinson_probe)
+```
+
+
+```{r}
+stinson_probe = subset(stinson_probe, Well %in% c("SW", "W1", "W2", "W3", "W4"))
+
+a = ggplot(data = stinson_probe, aes(x=salinity, y=log10(Nitrite_uM+1), col=Well)) +
+  geom_point(shape=19, size = 2) +
+  theme_bw()
+
+b = ggplot(data = stinson_probe, aes(x=salinity, y=sqrt(Nitrate_uM), col=Well)) +
+  geom_point(shape=19, size = 2) +
+  theme_bw()
+
+c = ggplot(data = stinson_probe, aes(x=salinity, y=log10(Phosphate_uM), col=Well)) +
+  geom_point(shape=19, size = 2) +
+  theme_bw()
+
+
+d = ggplot(data = stinson_probe, aes(x=salinity, y=log10(Nitrite_uM), col=Depth)) +
+  geom_point(shape=19, size = 2) +
+  theme_bw()
+
+e = ggplot(data = stinson_probe, aes(x=salinity, y=sqrt(Nitrate_uM), col=Depth)) +
+  geom_point(shape=19, size = 2) +
+  theme_bw()
+
+f = ggplot(data = stinson_probe, aes(x=salinity, y=log10(Phosphate_uM), col=Depth)) +
+  geom_point(shape=19, size = 2) +
+  theme_bw()
+
+library(gridExtra)
+l = mget(c("a", "b", "c", "d", "e", "f"))
+ggsave("Nutrients_Salinity.pdf", marrangeGrob(grobs = l, nrow=3, ncol=2),
+       units = "cm",
+       width = 25,
+       height = 25,
+       dpi = 300,
+       limitsize = FALSE)
+
+```
+
+```{r NMDS}
+stinson_probe = subset(stinson_probe, Well %in% c("SW", "W1", "W2", "W3", "W4"))
+stinson_probe = droplevels(stinson_probe)
+
+library(vegan)
+library(viridis)
+nmds.data = na.omit(data.frame(stinson_probe$Well, stinson_probe$Depth, log10(stinson_probe$Nitrite_uM+1), sqrt(stinson_probe$Nitrate_uM), log10(stinson_probe$Phosphate_uM+1), stinson_probe$salinity, stinson_probe$temperature, stinson_probe$DO, stinson_probe$pH))
+
+nmds_k3 <- metaMDS(nmds.data[3:ncol(nmds.data)], distance = 'bray', try=20, k=3)
+TimeColor = c("#a65628", "red", "#ffae19", "#4daf4a","skyblue", "blue")
+TimeColor = viridis(5)
+TimeColor =c("#a65628", "#3B528BFF", "#21908CFF", "#5DC863FF", "#FDE725FF")
+MicroShape = c(0,1,2,5,6)
+#
+plot(nmds_k3, type='n', main=paste('Stress =',round(nmds_k3$stress,3)), xlim=c(-0.5,0.5), ylim=c(-0.5,0.5))
+points(nmds_k3, col=TimeColor[nmds.data$stinson_probe.Well], pch=MicroShape[nmds.data$stinson_probe.Depth])
+legend('topright', bty='n', col=TimeColor, legend = levels(nmds.data$stinson_probe.Well), pch=20)
+legend('topleft', bty='n', pch = MicroShape, legend = levels(nmds.data$stinson_probe.Depth))
 
 ```
 
