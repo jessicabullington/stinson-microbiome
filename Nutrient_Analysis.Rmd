@@ -17,6 +17,8 @@ knitr::opts_chunk$set(echo = TRUE)
 library(ggplot2)
 library(dplyr)
 library(viridis)
+library(GGally) # ggpairs
+library(gridExtra)
 ```
 
 ```{r load data}
@@ -27,6 +29,13 @@ stinson_probe <- droplevels(stinson_probe)
 stinson_probe = subset(stinson_probe, tide %in% c("high", "low"))
 
 sand_surface <- as.data.frame(read.table("sand_surface.txt", header = TRUE, sep = "\t"))
+```
+
+
+```{r make a date time that R can recognize}
+stinson_probe$DT = paste(stinson_probe$date, stinson_probe$time)
+stinson_probe$DT = as.Date(stinson_probe$DT)
+stinson_probe$DT2 = as.POSIXct(stinson_probe$DT[1], tz = "")
 ```
 
 ## Spatial and temporal patterns
@@ -108,7 +117,9 @@ hist(stinson_probe$pH)
 
 
 hist(sqrt(stinson_probe$Nitrite_uM)) # model zeros separately?
+hist(log10(stinson_probe$Nitrate_uM+1))
 hist(sqrt(stinson_probe$Nitrate_uM))
+
 hist(log10(stinson_probe$Phosphate_uM+1))
 
 
@@ -117,6 +128,11 @@ hist(log10(stinson_probe$Phosphate_uM+1))
 
 ```{r pairs}
 pairs(~Nitrite_uM + Nitrate_uM + Phosphate_uM + salinity + DO + pH + distance_well1 + elevation, data = stinson_probe)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Phosphate_uM", "salinity", "DO", "pH", "distance_well1", "elevation")
+sub.data = stinson_probe[, (colnames(stinson_probe) %in% cols_keep)]
+
+ggpairs(sub.data)
 ```
 
 
@@ -148,7 +164,6 @@ f = ggplot(data = stinson_probe, aes(x=salinity, y=log10(Phosphate_uM), col=Dept
   geom_point(shape=19, size = 2) +
   theme_bw()
 
-library(gridExtra)
 l = mget(c("a", "b", "c", "d", "e", "f"))
 ggsave("Nutrients_Salinity.pdf", marrangeGrob(grobs = l, nrow=3, ncol=2),
        units = "cm",
@@ -158,6 +173,60 @@ ggsave("Nutrients_Salinity.pdf", marrangeGrob(grobs = l, nrow=3, ncol=2),
        limitsize = FALSE)
 
 ```
+
+```{r}
+# what's happening with pocket of low nitrate
+# All W1D4 but different days and tides
+# denitrification?
+stinson_probe$Collection_Date = as.factor(as.character(stinson_probe$Collection_Date))
+ggplot(data = stinson_probe, aes(x=salinity, y=sqrt(Nitrate_uM), col=Collection_Date)) +
+  geom_point(shape=19, size = 2) +
+  theme_bw()
+
+ggplot(data = stinson_probe, aes(x=salinity, y=sqrt(Nitrate_uM), col=Tide)) +
+  geom_point(shape=19, size = 2) +
+  theme_bw()
+
+```
+
+
+```{r conservative mixing}
+# Nitrate
+n = ggplot(data = stinson_probe, aes(x=salinity, y=sqrt(Nitrate_uM))) +
+  geom_point(shape=19, size = 2) +
+  theme_bw()
+
+n2 = n + geom_segment(aes(x=0.7, y=sqrt(553.5208150), xend = 34.5, yend= sqrt(11.708682)), col="blue")
+
+# Phosphate
+p = ggplot(data = stinson_probe, aes(x=salinity, y=log10(Phosphate_uM))) +
+  geom_point(shape=19, size = 2) +
+  theme_bw()
+
+p2 = p + geom_segment(aes(x=0.7, y=log10(24.472326), xend = 34.5, yend= log10(2.453690)), col="blue")
+
+
+q = mget(c("n2", "p2"))
+ggsave("MixingModel1.pdf", marrangeGrob(grobs = q, nrow=1, ncol=2),
+       units = "cm",
+       width = 25,
+       height = 10,
+       dpi = 300,
+       limitsize = FALSE)
+
+
+# combined
+l = mget(c("a", "b", "c", "d", "e", "f", "n2", "p2"))
+ggsave("Nutrients_Salinity_Mix.pdf", marrangeGrob(grobs = l, nrow=3, ncol=2),
+       units = "cm",
+       width = 25,
+       height = 25,
+       dpi = 300,
+       limitsize = FALSE)
+
+
+```
+
 
 ```{r NMDS}
 stinson_probe = subset(stinson_probe, Well %in% c("SW", "W1", "W2", "W3", "W4"))
@@ -178,5 +247,405 @@ points(nmds_k3, col=TimeColor[nmds.data$stinson_probe.Well], pch=MicroShape[nmds
 legend('topright', bty='n', col=TimeColor, legend = levels(nmds.data$stinson_probe.Well), pch=20)
 legend('topleft', bty='n', pch = MicroShape, legend = levels(nmds.data$stinson_probe.Depth))
 
+```
+
+
+```{r time series grid}
+stinson_probe1 = subset(stinson_probe, Well %in% c("W1"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D1"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+library(reshape2)
+d = melt(timeseries, "Time")
+
+w1d1 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well1 Depth1")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+stinson_probe1 = subset(stinson_probe, Well %in% c("W1"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D2"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+library(reshape2)
+d = melt(timeseries, "Time")
+
+w1d2 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well1 Depth2")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+stinson_probe1 = subset(stinson_probe, Well %in% c("W1"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D3"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+library(reshape2)
+d = melt(timeseries, "Time")
+
+w1d3 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well1 Depth3")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+stinson_probe1 = subset(stinson_probe, Well %in% c("W1"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D4"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+library(reshape2)
+d = melt(timeseries, "Time")
+
+w1d4 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well1 Depth4")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+stinson_probe1 = subset(stinson_probe, Well %in% c("W2"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D1"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+library(reshape2)
+d = melt(timeseries, "Time")
+
+w2d1 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well2 Depth1")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+stinson_probe1 = subset(stinson_probe, Well %in% c("W2"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D2"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+d = melt(timeseries, "Time")
+
+w2d2 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well2 Depth2")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+stinson_probe1 = subset(stinson_probe, Well %in% c("W2"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D3"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+d = melt(timeseries, "Time")
+
+w2d3 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well2 Depth3")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+stinson_probe1 = subset(stinson_probe, Well %in% c("W2"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D4"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+d = melt(timeseries, "Time")
+
+w2d4 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well2 Depth4")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+stinson_probe1 = subset(stinson_probe, Well %in% c("W3"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D1"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+d = melt(timeseries, "Time")
+
+w3d1 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well3 Depth1")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+stinson_probe1 = subset(stinson_probe, Well %in% c("W3"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D2"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+d = melt(timeseries, "Time")
+
+w3d2 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well3 Depth2")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+stinson_probe1 = subset(stinson_probe, Well %in% c("W3"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D3"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+d = melt(timeseries, "Time")
+
+w3d3 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well3 Depth3")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+stinson_probe1 = subset(stinson_probe, Well %in% c("W3"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D4"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+d = melt(timeseries, "Time")
+
+w3d4 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well3 Depth4")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+stinson_probe1 = subset(stinson_probe, Well %in% c("W4"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D1"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+d = melt(timeseries, "Time")
+
+w4d1 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well4 Depth1")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+stinson_probe1 = subset(stinson_probe, Well %in% c("W4"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D2"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+d = melt(timeseries, "Time")
+
+w4d2 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well4 Depth2")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+stinson_probe1 = subset(stinson_probe, Well %in% c("W4"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D3"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+d = melt(timeseries, "Time")
+
+w4d3 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well4 Depth3")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+stinson_probe1 = subset(stinson_probe, Well %in% c("W4"))
+stinson_probe2 = subset(stinson_probe1, Depth %in% c("D4"))
+stinson_probe3 = droplevels(stinson_probe2)
+
+cols_keep = c("Nitrite_uM", "Nitrate_uM", "Ammonia_uM", "Time")
+timeseries = stinson_probe3[, (colnames(stinson_probe3) %in% cols_keep)]
+
+timeseries$Nitrite_uM = log10(timeseries$Nitrite_uM + 1)
+timeseries$Nitrate_uM = log10(timeseries$Nitrate_uM + 1)
+timeseries$Ammonia_uM = log10(timeseries$Ammonia_uM + 1)
+
+d = melt(timeseries, "Time")
+
+w4d4 = ggplot(d, aes(Time, value, color = variable, linetype = variable)) +
+    geom_line() +
+    labs(color = NULL, linetype = NULL) +
+    xlim(1,18) +
+    scale_y_continuous(limits = c(0,3)) +
+    xlab("Sampling Event") +
+    ylab("log10(Micromolar)") +
+    ggtitle("Well4 Depth4")+
+    theme_bw() +
+    theme(legend.position = "bottom")
+
+# combined
+l = mget(c("w1d1", "w1d2", "w1d3", "w1d4", "w2d1", "w2d2", "w2d3", "w2d4", "w3d1", "w3d2", "w3d3", "w3d4", "w4d1", "w4d2", "w4d3", "w4d4"))
+ggsave("Nutrients_Timeseries_Grid_2022.04.18.pdf", marrangeGrob(grobs = l, nrow=4, ncol=4),
+       units = "cm",
+       width = 25,
+       height = 25,
+       dpi = 300,
+       limitsize = FALSE)
 ```
 
